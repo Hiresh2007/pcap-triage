@@ -17,6 +17,9 @@ pcap/pcapng ──► reader.iter_packets ──► PacketRecord[] ──┬─�
 * **Flows are directional** (`A:p -> B:q` and `B:q -> A:p` are separate). That
   is simpler to reason about for "who initiated" questions. Bidirectional
   session pairing can be layered on top later.
+* **DNS fields** (first question name, type, query/response flag, rcode) are
+  attached to UDP/53 records as `DnsInfo`. Malformed payloads on port 53 give
+  `dns=None` instead of an exception.
 * **Detectors are pure functions** `records -> list[Finding]`. Each finding has
   a JSON-serialisable `evidence` dict so the reasoning behind an alert can be
   checked by hand.
@@ -67,3 +70,57 @@ distinct keys. Cost: O(n log n) for the sort, O(n) for the sweep.
   yet.
 * **False positives:** NAT gateways and proxies (many users behind one IP),
   authorised vulnerability scanners, passive FTP and MS-RPC dynamic ports.
+
+## DNS anomaly detection
+
+### Tunnelling (`dns.tunnel`, T1071.004)
+
+Tunnelling tools (iodine, dnscat2, custom exfiltration scripts) encode data
+into subdomain labels of a domain the attacker controls, so the resolver
+forwards every query to the attacker's authoritative server.
+
+For every `(client, registered domain)` pair, over all queries in the capture:
+
+| Signal | Default | Why |
+|---|---|---|
+| unique subdomains | ≥ 15 | Each chunk of data produces a new name; caching makes normal names repeat |
+| mean subdomain length | ≥ 20 chars | Encoded chunks are long; normal hostnames (`www`, `mail`, `api`) are short |
+| mean Shannon entropy | ≥ 3.0 bits/char | Encoded data uses its alphabet evenly |
+
+All three must hold. Entropy alone is weak on short strings (a 4-character
+string can have at most 2 bits/char), which is why length is a separate
+condition.
+
+**Why 3.0 and not 3.5.** The first version used 3.5. Testing against hex
+encoding of *ordinary text* showed a mean of about 3.2–3.35 bits/char: hex
+has a 16-symbol alphabet (maximum 4.0), and text only produces some nibble
+pairs. Uniformly random hex (e.g. encrypted payloads) reaches about 3.9. A
+3.5 threshold would have missed plain-text exfiltration encoded as hex;
+`test_detects_hex_encoded_text_tunnel` locks this in.
+
+The **registered domain** is approximated as the last two labels, or three
+for a short list of two-label public suffixes (`co.uk`, `com.au`, ...). A full
+Public Suffix List would be more accurate; it is a candidate dependency.
+
+### NXDOMAIN rate (`dns.nxdomain`, T1568.002)
+
+DGA malware generates many candidate C2 domains and tries them until one
+resolves, so most of its lookups fail. Per client (the destination of DNS
+replies): at least 10 distinct names answered NXDOMAIN **and** NXDOMAIN being
+at least 50 % of all replies. The ratio condition stops a busy, otherwise
+healthy client from being flagged for a handful of typos.
+
+### Limitations and false positives
+
+* Aggregation is over the whole capture, not a sliding window: tunnelling is
+  usually sustained, but a long capture of a busy resolver can accumulate
+  counts. Windowing like the scan detector is a possible refinement.
+* Only UDP/53 is parsed. DNS over TCP, DoT (853) and DoH (443) are not visible.
+* NXDOMAIN detection needs the resolver's replies in the capture. Tunnelling is
+  detected from queries alone and grouped by domain rather than resolver, so it
+  also works when a client uses a non-standard resolver.
+* Query names are attacker-controlled bytes. The reader escapes anything outside
+  printable ASCII as `\xNN`, so reports cannot carry terminal escape sequences.
+* False positives: AV/reputation lookups and DNSBLs that encode data into
+  names, some telemetry and CDN schemes, and misconfigured DNS search suffixes
+  (NXDOMAIN bursts).

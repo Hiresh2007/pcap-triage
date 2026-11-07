@@ -61,3 +61,23 @@ def write_pcap(tmp_path: Path):
         return path
 
     return _write
+
+
+CLIENT = "192.0.2.20"
+RESOLVER = "192.0.2.53"
+
+
+def dns_query(qname, ts, client=CLIENT, qtype="A", sport=53000):
+    from scapy.layers.dns import DNS, DNSQR
+    from scapy.layers.inet import UDP
+
+    q = IP(src=client, dst=RESOLVER) / UDP(sport=sport, dport=53)
+    return stamp(eth() / q / DNS(rd=1, qd=DNSQR(qname=qname, qtype=qtype)), ts)
+
+
+def dns_reply(qname, ts, client=CLIENT, rcode=0, dport=53000):
+    from scapy.layers.dns import DNS, DNSQR
+    from scapy.layers.inet import UDP
+
+    r = IP(src=RESOLVER, dst=client) / UDP(sport=53, dport=dport)
+    return stamp(eth() / r / DNS(qr=1, rcode=rcode, qd=DNSQR(qname=qname)), ts)

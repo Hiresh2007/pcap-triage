@@ -8,8 +8,8 @@ It is meant for the first ten minutes with an unfamiliar capture, such as a lab
 exercise, a CTF challenge or a capture exported from a sensor, before reaching
 for heavier tools like Zeek or Suricata.
 
-> Status: early development (v0.1). Port-scan detection is implemented and
-> tested; further detectors are on the [roadmap](#roadmap).
+> Status: early development (v0.2). Port-scan and DNS anomaly detection are
+> implemented and tested; further detectors are on the [roadmap](#roadmap).
 
 ## Features
 
@@ -19,10 +19,14 @@ for heavier tools like Zeek or Suricata.
 | Flow summary | Directional 5-tuple flows, protocol mix, top talkers, top flows by bytes |
 | `portscan.vertical` | One source SYN-probing many ports on one host within a sliding window. Reports which probed ports answered SYN-ACK (open) |
 | `portscan.horizontal` | One source SYN-probing one port across many hosts (e.g. SMB/445 sweeps) |
+| `dns.tunnel` | Many unique, long, high-entropy subdomains of one domain from one client (DNS tunnelling / exfiltration) |
+| `dns.nxdomain` | A client receiving NXDOMAIN for many distinct names at a high rate (DGA malware) |
 | Output | Text report for humans, JSON for pipelines; `--fail-on-findings` exit code for scripting |
 
-Each finding has a MITRE ATT&CK technique ID where one applies
-(port scans map to [T1046 Network Service Discovery](https://attack.mitre.org/techniques/T1046/)).
+Each finding has a MITRE ATT&CK technique ID where one applies:
+[T1046](https://attack.mitre.org/techniques/T1046/) (port scans),
+[T1071.004](https://attack.mitre.org/techniques/T1071/004/) (DNS tunnelling),
+[T1568.002](https://attack.mitre.org/techniques/T1568/002/) (DGA).
 
 ## Install
 
@@ -45,12 +49,18 @@ pcap-triage analyze samples/demo_scan.pcap
 ```
 
 ```text
-Findings (2)
+Findings (4)
   [MEDIUM] TCP vertical port scan [T1046]
       192.0.2.66 sent SYNs to 102 distinct ports on 198.51.100.10 within 0.5s (threshold 15 in 60s).
       open ports: 22, 80, 443
   [MEDIUM] TCP horizontal sweep on port 445 [T1046]
       192.0.2.66 sent SYNs to port 445 on 30 distinct hosts within 0.6s (threshold 10 in 60s).
+  [HIGH] Possible DNS tunnelling via example.net [T1071.004]
+      192.0.2.31 queried 33 unique subdomains of example.net (mean length 35.0, mean entropy 3.17 bits/char).
+      e.g. 006c616220657866696c20746573743a20.t.example.net, ...
+  [MEDIUM] High NXDOMAIN rate (possible DGA) [T1568.002]
+      192.0.2.47 received NXDOMAIN for 25 distinct names (100% of 25 DNS replies).
+      e.g. ccipwvcbxwjusv.com, dpoppjcedxkxip.com, dqxenggaigjqhy.com
 ```
 
 Options:
@@ -61,6 +71,8 @@ Options:
 --scan-ports N         distinct ports on one host that count as a vertical scan (default 15)
 --scan-hosts N         distinct hosts on one port that count as a horizontal sweep (default 10)
 --scan-window SECONDS  sliding window for scan detection (default 60)
+--dns-min-subdomains N unique subdomains of one domain for a tunnelling finding (default 15)
+--dns-min-nxdomain N   distinct NXDOMAIN names for a DGA finding (default 10)
 --fail-on-findings     exit 1 when any finding is produced
 ```
 
@@ -86,7 +98,7 @@ Test fixtures use RFC 5737 documentation addresses (192.0.2.0/24,
 
 - [x] Streaming reader, flow summary, text/JSON reports
 - [x] Vertical and horizontal TCP SYN scan detection
-- [ ] DNS anomalies: long / high-entropy query names (tunnelling, DGA)
+- [x] DNS anomalies: tunnelling (long / high-entropy names) and high NXDOMAIN rate (DGA)
 - [ ] Beaconing: regular-interval connections (C2 heartbeat)
 - [ ] ARP spoofing: IP-to-MAC binding changes
 - [ ] Cleartext credentials: HTTP Basic, FTP, Telnet
