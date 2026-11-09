@@ -1,5 +1,5 @@
 """Generate a synthetic lab capture for demos: benign web/DNS traffic plus a SYN scan,
-an SMB sweep, DNS tunnelling and DGA-style NXDOMAIN bursts.
+an SMB sweep, DNS tunnelling, DGA-style NXDOMAIN bursts and a jittered C2 beacon.
 Uses RFC 5737 documentation addresses only.
 
     python scripts/make_demo_pcap.py samples/demo_scan.pcap
@@ -19,6 +19,7 @@ from scapy.utils import wrpcap
 T0 = 1_700_000_000.0
 SCANNER, VICTIM, CLIENT, DNS_SRV = "192.0.2.66", "198.51.100.10", "192.0.2.20", "192.0.2.53"
 TUNNEL_CLIENT, DGA_HOST = "192.0.2.31", "192.0.2.47"
+IMPLANT, C2 = "192.0.2.88", "203.0.113.50"
 OPEN_PORTS = {22, 80, 443}
 
 
@@ -74,6 +75,15 @@ def build(seed: int = 7) -> list:
         r = IP(src=DNS_SRV, dst=DGA_HOST) / UDP(sport=53, dport=53531)
         out.append(pkt(q / DNS(rd=1, qd=DNSQR(qname=name)), ts))
         out.append(pkt(r / DNS(qr=1, rcode=3, qd=DNSQR(qname=name)), ts + 0.02))
+    # C2 beacon: new HTTPS connection about every 30 s with +/-15 % jitter
+    t = T0 + 5
+    for i in range(14):
+        sport = 52000 + i
+        for flags, a, b in (("S", IMPLANT, C2), ("SA", C2, IMPLANT), ("A", IMPLANT, C2)):
+            sp, dp = (sport, 443) if a == IMPLANT else (443, sport)
+            out.append(pkt(IP(src=a, dst=b) / TCP(sport=sp, dport=dp, flags=flags), t))
+            t += 0.02
+        t += 30 * (1 + rng.uniform(-0.15, 0.15))
     return sorted(out, key=lambda p: p.time)
 
 

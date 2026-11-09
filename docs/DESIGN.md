@@ -124,3 +124,59 @@ healthy client from being flagged for a handful of typos.
 * False positives: AV/reputation lookups and DNSBLs that encode data into
   names, some telemetry and CDN schemes, and misconfigured DNS search suffixes
   (NXDOMAIN bursts).
+
+## Beaconing detection (`beacon`, T1071)
+
+Implants contact their C2 server on a timer, usually with random jitter to
+look less mechanical. The detector measures how *regular* contact is between
+one source and one destination service; volume is irrelevant.
+
+### Method
+
+Per channel `(src, dst, dst port, protocol)`:
+
+1. **Events.** TCP: each new connection (SYN without ACK), which identifies
+   the initiator exactly. UDP: each datagram towards the lower-numbered port,
+   assumed to be the service (clients normally use high ephemeral ports).
+   Events less than 2 s apart are merged into one check-in.
+2. **Intervals** between consecutive check-ins.
+3. **Typical interval** = median. **Jitter** = median absolute deviation (MAD)
+   divided by the median.
+4. Flag when there are ≥ 8 check-ins, the median interval is ≥ 5 s, and
+   jitter ≤ 0.2.
+
+Median and MAD are used instead of mean and standard deviation because they
+are robust: a single lost or delayed check-in doubles one interval, which
+would inflate a standard deviation but leaves the median and MAD almost
+unchanged (`test_one_missed_beacon_barely_moves_robust_stats`).
+
+### Measured behaviour of the 0.2 threshold
+
+Simulated with 200 trials per row (uniform jitter around a 60 s interval;
+"irregular" = exponential gaps with mean 60 s plus 5 s):
+
+| Traffic | Flagged |
+|---|---|
+| beacon, ±10 % jitter, 12 check-ins | 100 % |
+| beacon, ±20 % jitter | 100 % |
+| beacon, ±30 % jitter | 96 % |
+| beacon, ±40 % jitter | 70 % |
+| beacon, ±50 % jitter | 45 % |
+| irregular, 8 events | 2.5 % |
+| irregular, 12 events | 1.0 % |
+| irregular, 30 events | 0 % |
+
+Heavy jitter (≥ 40 %) is a deliberate evasion and partly succeeds. False
+positives on irregular traffic fall as the number of events grows, which is
+why `--beacon-min-events` matters more than the jitter threshold for
+precision.
+
+### Limitations and false positives
+
+* Beacons that keep one long-lived TCP connection open send a single SYN and
+  are invisible to this method; per-connection payload timing would be needed.
+* UDP services on a port higher than the client's are mis-oriented.
+* Legitimate periodic traffic: NTP and DNS (ignored by default), monitoring
+  agents, health checks, update polling, push-notification keep-alives. These
+  need allow-lists (roadmap: per-detector allow-lists).
+* Very slow beacons (hours) need captures long enough to contain ≥ 8 check-ins.
