@@ -10,7 +10,14 @@ from pathlib import Path
 from scapy.error import Scapy_Exception
 
 from . import __version__
-from .detectors import DnsConfig, PortScanConfig, detect_dns_anomalies, detect_port_scans
+from .detectors import (
+    BeaconConfig,
+    DnsConfig,
+    PortScanConfig,
+    detect_beaconing,
+    detect_dns_anomalies,
+    detect_port_scans,
+)
 from .flows import summarize
 from .reader import read_packets
 from .report import AnalysisResult, render_json, render_text
@@ -21,13 +28,21 @@ EXIT_ERROR = 2
 
 _DEFAULTS = PortScanConfig()
 _DNS_DEFAULTS = DnsConfig()
+_BEACON_DEFAULTS = BeaconConfig()
 
 
 def analyze(
-    path: Path, scan_config: PortScanConfig, dns_config: DnsConfig | None = None
+    path: Path,
+    scan_config: PortScanConfig,
+    dns_config: DnsConfig | None = None,
+    beacon_config: BeaconConfig | None = None,
 ) -> AnalysisResult:
     records, stats = read_packets(path)
-    findings = detect_port_scans(records, scan_config) + detect_dns_anomalies(records, dns_config)
+    findings = (
+        detect_port_scans(records, scan_config)
+        + detect_dns_anomalies(records, dns_config)
+        + detect_beaconing(records, beacon_config)
+    )
     findings.sort(key=lambda f: (f.first_seen, f.detector, f.src))
     return AnalysisResult(
         source=path.name,
@@ -79,6 +94,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="distinct NXDOMAIN names for one client that count as possible DGA activity",
     )
     a.add_argument(
+        "--beacon-min-events",
+        type=int,
+        default=_BEACON_DEFAULTS.min_events,
+        help="check-ins on one channel needed before beaconing is considered",
+    )
+    a.add_argument(
+        "--beacon-max-jitter",
+        type=float,
+        default=_BEACON_DEFAULTS.max_jitter,
+        help="maximum interval jitter (median absolute deviation / median), e.g. 0.2",
+    )
+    a.add_argument(
         "--fail-on-findings",
         action="store_true",
         help="exit with status 1 if any finding is produced (for CI / scripting)",
@@ -98,11 +125,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             tunnel_min_unique_subdomains=args.dns_min_subdomains,
             nx_min_distinct=args.dns_min_nxdomain,
         )
+        beacon_config = BeaconConfig(
+            min_events=args.beacon_min_events, max_jitter=args.beacon_max_jitter
+        )
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return EXIT_ERROR
     try:
-        result = analyze(args.pcap, config, dns_config)
+        result = analyze(args.pcap, config, dns_config, beacon_config)
     except (Scapy_Exception, OSError, EOFError) as exc:
         print(f"error: could not read {args.pcap}: {exc}", file=sys.stderr)
         return EXIT_ERROR

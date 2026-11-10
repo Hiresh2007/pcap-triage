@@ -74,3 +74,14 @@ def test_dns_threshold_flags(write_pcap, capsys):
     main(["analyze", str(path), "--format", "json", "--dns-min-subdomains", "100"])
     assert json.loads(capsys.readouterr().out)["findings"] == []
     assert main(["analyze", str(path), "--dns-min-nxdomain", "1"]) == EXIT_ERROR
+
+
+def test_beacon_in_text_report_and_flags(write_pcap, capsys):
+    from .test_beacon import beacon_times, tcp_checkins
+
+    path = write_pcap(tcp_checkins(beacon_times(12, 60)), "beacon.pcap")
+    assert main(["analyze", str(path), "--fail-on-findings"]) == EXIT_FINDINGS
+    assert "Periodic beaconing to 203.0.113.50:443/tcp [T1071]" in capsys.readouterr().out
+    main(["analyze", str(path), "--format", "json", "--beacon-min-events", "20"])
+    assert json.loads(capsys.readouterr().out)["findings"] == []
+    assert main(["analyze", str(path), "--beacon-max-jitter", "1.5"]) == EXIT_ERROR
