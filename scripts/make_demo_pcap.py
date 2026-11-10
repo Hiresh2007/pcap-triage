@@ -1,5 +1,6 @@
-"""Generate a synthetic lab capture for demos: benign web/DNS traffic plus a SYN scan
-and a SMB sweep. Uses RFC 5737 documentation addresses only.
+"""Generate a synthetic lab capture for demos: benign web/DNS traffic plus a SYN scan,
+an SMB sweep, DNS tunnelling and DGA-style NXDOMAIN bursts.
+Uses RFC 5737 documentation addresses only.
 
     python scripts/make_demo_pcap.py samples/demo_scan.pcap
 """
@@ -17,6 +18,7 @@ from scapy.utils import wrpcap
 
 T0 = 1_700_000_000.0
 SCANNER, VICTIM, CLIENT, DNS_SRV = "192.0.2.66", "198.51.100.10", "192.0.2.20", "192.0.2.53"
+TUNNEL_CLIENT, DGA_HOST = "192.0.2.31", "192.0.2.47"
 OPEN_PORTS = {22, 80, 443}
 
 
@@ -58,6 +60,20 @@ def build(seed: int = 7) -> list:
                 ts,
             )
         )
+    # DNS tunnelling: a second client exfiltrates text as hex labels via TXT queries
+    data = ("lab exfil test: contents of /etc/hostname and a fake api key 0000 " * 8).encode()
+    for i in range(0, len(data), 16):
+        name = f"{i // 16:02x}{data[i : i + 16].hex()}.t.example.net"
+        q = IP(src=TUNNEL_CLIENT, dst=DNS_SRV) / UDP(sport=53530, dport=53)
+        out.append(pkt(q / DNS(rd=1, qd=DNSQR(qname=name, qtype="TXT")), T0 + 25 + i / 64))
+    # DGA-like behaviour: a third host gets NXDOMAIN for many generated names
+    for i in range(25):
+        label = "".join(rng.choice("abcdefghijklmnopqrstuvwxyz") for _ in range(14))
+        name, ts = f"{label}.com", T0 + 30 + i * 0.3
+        q = IP(src=DGA_HOST, dst=DNS_SRV) / UDP(sport=53531, dport=53)
+        r = IP(src=DNS_SRV, dst=DGA_HOST) / UDP(sport=53, dport=53531)
+        out.append(pkt(q / DNS(rd=1, qd=DNSQR(qname=name)), ts))
+        out.append(pkt(r / DNS(qr=1, rcode=3, qd=DNSQR(qname=name)), ts + 0.02))
     return sorted(out, key=lambda p: p.time)
 
 

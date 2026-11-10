@@ -10,7 +10,7 @@ from pathlib import Path
 from scapy.error import Scapy_Exception
 
 from . import __version__
-from .detectors import PortScanConfig, detect_port_scans
+from .detectors import DnsConfig, PortScanConfig, detect_dns_anomalies, detect_port_scans
 from .flows import summarize
 from .reader import read_packets
 from .report import AnalysisResult, render_json, render_text
@@ -20,15 +20,20 @@ EXIT_FINDINGS = 1
 EXIT_ERROR = 2
 
 _DEFAULTS = PortScanConfig()
+_DNS_DEFAULTS = DnsConfig()
 
 
-def analyze(path: Path, scan_config: PortScanConfig) -> AnalysisResult:
+def analyze(
+    path: Path, scan_config: PortScanConfig, dns_config: DnsConfig | None = None
+) -> AnalysisResult:
     records, stats = read_packets(path)
+    findings = detect_port_scans(records, scan_config) + detect_dns_anomalies(records, dns_config)
+    findings.sort(key=lambda f: (f.first_seen, f.detector, f.src))
     return AnalysisResult(
         source=path.name,
         stats=stats,
         summary=summarize(records),
-        findings=detect_port_scans(records, scan_config),
+        findings=findings,
     )
 
 
@@ -62,6 +67,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="sliding window in seconds for scan detection",
     )
     a.add_argument(
+        "--dns-min-subdomains",
+        type=int,
+        default=_DNS_DEFAULTS.tunnel_min_unique_subdomains,
+        help="unique subdomains of one domain that count as possible DNS tunnelling",
+    )
+    a.add_argument(
+        "--dns-min-nxdomain",
+        type=int,
+        default=_DNS_DEFAULTS.nx_min_distinct,
+        help="distinct NXDOMAIN names for one client that count as possible DGA activity",
+    )
+    a.add_argument(
         "--fail-on-findings",
         action="store_true",
         help="exit with status 1 if any finding is produced (for CI / scripting)",
@@ -77,11 +94,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         return EXIT_ERROR
     try:
         config = PortScanConfig(args.scan_ports, args.scan_hosts, args.scan_window)
+        dns_config = DnsConfig(
+            tunnel_min_unique_subdomains=args.dns_min_subdomains,
+            nx_min_distinct=args.dns_min_nxdomain,
+        )
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return EXIT_ERROR
     try:
-        result = analyze(args.pcap, config)
+        result = analyze(args.pcap, config, dns_config)
     except (Scapy_Exception, OSError, EOFError) as exc:
         print(f"error: could not read {args.pcap}: {exc}", file=sys.stderr)
         return EXIT_ERROR

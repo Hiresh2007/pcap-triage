@@ -89,6 +89,9 @@ def render_text(result: AnalysisResult, top: int = 5) -> str:
         lines.append(f"      {f['description']}")
         if f["evidence"].get("open_ports"):
             lines.append(f"      open ports: {', '.join(map(str, f['evidence']['open_ports']))}")
+        samples = f["evidence"].get("sample_queries") or f["evidence"].get("sample_names")
+        if samples:
+            lines.append("      e.g. " + ", ".join(samples[:3]))
         if f["evidence"].get("hosts_with_port_open"):
             lines.append(
                 "      hosts with port open: " + ", ".join(f["evidence"]["hosts_with_port_open"])

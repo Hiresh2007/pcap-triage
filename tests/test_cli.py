@@ -54,3 +54,23 @@ def test_not_a_pcap(tmp_path, capsys):
     bogus.write_text("this is not a packet capture")
     assert main(["analyze", str(bogus)]) == EXIT_ERROR
     assert "could not read" in capsys.readouterr().err
+
+
+def test_dns_findings_in_text_report(write_pcap, capsys):
+    from .test_dns import dga_traffic, tunnel_traffic
+
+    path = write_pcap(tunnel_traffic() + dga_traffic(), "dns.pcap")
+    assert main(["analyze", str(path), "--fail-on-findings"]) == EXIT_FINDINGS
+    out = capsys.readouterr().out
+    assert "Possible DNS tunnelling via example.net [T1071.004]" in out
+    assert "High NXDOMAIN rate (possible DGA) [T1568.002]" in out
+    assert "e.g. " in out
+
+
+def test_dns_threshold_flags(write_pcap, capsys):
+    from .test_dns import tunnel_traffic
+
+    path = write_pcap(tunnel_traffic(), "dns.pcap")
+    main(["analyze", str(path), "--format", "json", "--dns-min-subdomains", "100"])
+    assert json.loads(capsys.readouterr().out)["findings"] == []
+    assert main(["analyze", str(path), "--dns-min-nxdomain", "1"]) == EXIT_ERROR
