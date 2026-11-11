@@ -1,0 +1,18 @@
+# Example pcap-triage allow-list. Use with: pcap-triage analyze cap.pcap --allowlist examples/allowlist.toml
+# A rule matches when every field it sets matches. `reason` is required and appears in the report.
+
+[[allow]]
+detector = "beacon"
+dst = "203.0.113.50"
+port = 443
+reason = "Endpoint agent heartbeat to vendor cloud (approved)"
+
+[[allow]]
+detector = "dns.*"
+domain = "av-lookup.example"
+reason = "Anti-virus reputation lookups encode hashes in DNS names"
+
+[[allow]]
+detector = "portscan.*"
+src = "192.0.2.200/32"
+reason = "Authorised vulnerability scanner"

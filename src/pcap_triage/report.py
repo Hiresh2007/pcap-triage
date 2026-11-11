@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
@@ -19,6 +19,7 @@ class AnalysisResult:
     stats: ReadStats
     summary: CaptureSummary
     findings: list[Finding]
+    suppressed: list = field(default_factory=list)  # list[allowlist.Suppressed]
 
 
 def _iso(ts: float | None) -> str | None:
@@ -52,6 +53,16 @@ def to_dict(result: AnalysisResult, top: int = 5) -> dict[str, Any]:
                 "duration_seconds": round(f.duration, 6),
             }
             for f in s.top_flows(top)
+        ],
+        "suppressed": [
+            {
+                "detector": s.finding.detector,
+                "title": s.finding.title,
+                "src": s.finding.src,
+                "dst": s.finding.dst,
+                "reason": s.reason,
+            }
+            for s in result.suppressed
         ],
         "findings": [
             {**f.to_dict(), "first_seen": _iso(f.first_seen), "last_seen": _iso(f.last_seen)}
@@ -96,4 +107,7 @@ def render_text(result: AnalysisResult, top: int = 5) -> str:
             lines.append(
                 "      hosts with port open: " + ", ".join(f["evidence"]["hosts_with_port_open"])
             )
+    if d["suppressed"]:
+        lines += ["", f"Suppressed by allow-list ({len(d['suppressed'])})"]
+        lines += [f"  {x['title']} ({x['src']}): {x['reason']}" for x in d["suppressed"]]
     return "\n".join(lines)
