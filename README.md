@@ -18,6 +18,8 @@ for heavier tools like Zeek or Suricata.
 | Reader | Streams pcap and pcapng via Scapy; IPv4 and IPv6; TCP, UDP, ICMP |
 | Flow summary | Directional 5-tuple flows, protocol mix, top talkers, top flows by bytes |
 | `portscan.vertical` | One source SYN-probing many ports on one host within a sliding window. Reports which probed ports answered SYN-ACK (open) |
+| `portscan.null` / `.fin` / `.xmas` | NULL, FIN-only and FIN+PSH+URG probes to many ports on one host (stealth scans) |
+| `portscan.udp` | UDP probes to many ports on one host; ICMP port-unreachable replies counted as closed |
 | `portscan.horizontal` | One source SYN-probing one port across many hosts (e.g. SMB/445 sweeps) |
 | `dns.tunnel` | Many unique, long, high-entropy subdomains of one domain from one client (DNS tunnelling / exfiltration) |
 | `dns.nxdomain` | A client receiving NXDOMAIN for many distinct names at a high rate (DGA malware) |
@@ -123,7 +125,7 @@ Test fixtures use RFC 5737 documentation addresses (192.0.2.0/24,
 - [ ] ARP spoofing: IP-to-MAC binding changes
 - [ ] Cleartext credentials: HTTP Basic, FTP, Telnet
 - [x] Per-detector allow-lists with mandatory reasons
-- [ ] UDP scan detection
+- [x] UDP and NULL / FIN / Xmas scan detection
 - [ ] Validation against public lab captures and Nmap traffic recorded in a local VM
 
 ## Responsible use

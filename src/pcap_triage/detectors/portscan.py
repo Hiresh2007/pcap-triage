@@ -23,7 +23,7 @@ from collections import defaultdict
 from collections.abc import Iterable
 from dataclasses import dataclass
 
-from ..reader import PacketRecord
+from ..reader import FIN, PSH, URG, PacketRecord
 from .base import Finding, Severity, max_distinct_in_window
 
 PORT_SAMPLE_LIMIT = 25
@@ -46,6 +46,7 @@ def detect_port_scans(
     records: Iterable[PacketRecord], config: PortScanConfig | None = None
 ) -> list[Finding]:
     config = config or PortScanConfig()
+    records = list(records)  # two passes: SYN scans, then other probe types
 
     # (scanner, target) -> [(ts, dport)]
     vertical: dict[tuple[str, str], list[tuple[float, int]]] = defaultdict(list)
@@ -136,5 +137,76 @@ def detect_port_scans(
             )
         )
 
+    findings += _probe_scans(records, config)
     findings.sort(key=lambda f: (f.first_seen, f.detector, f.src))
+    return findings
+
+
+# Flag combinations that never occur in a normal TCP conversation. Nmap's
+# -sN / -sF / -sX scans use them because RFC 793 makes closed ports answer RST
+# and open ports stay silent, and some filters only inspect SYN packets.
+STEALTH_FLAGS = {0: "NULL", FIN: "FIN", FIN | PSH | URG: "Xmas"}
+ICMP_DEST_UNREACHABLE, ICMP_PORT_UNREACHABLE = 3, 3
+
+
+def _probe_scans(records: list[PacketRecord], config: PortScanConfig) -> list[Finding]:
+    """Vertical NULL / FIN / Xmas scans and UDP port scans."""
+    # (kind, scanner, target) -> [(ts, dport)]
+    probes: dict[tuple[str, str, str], list[tuple[float, int]]] = defaultdict(list)
+    tcp_rst: dict[tuple[str, str], set[int]] = defaultdict(set)  # (target, scanner)
+    icmp_closed: dict[tuple[str, str], set[int]] = defaultdict(set)  # (target, scanner)
+
+    for r in records:
+        if r.proto == "TCP" and r.dport is not None:
+            kind = STEALTH_FLAGS.get(r.tcp_flags)
+            if kind is not None:
+                probes[(kind, r.src, r.dst)].append((r.ts, r.dport))
+            elif r.is_rst and r.sport is not None:
+                tcp_rst[(r.src, r.dst)].add(r.sport)
+        elif r.proto == "UDP" and r.sport is not None and r.dport is not None:
+            # count datagrams towards the lower (service) port only, so replies
+            # from a DNS server to many client ports are not mistaken for probes
+            if r.dport < r.sport:
+                probes[("UDP", r.src, r.dst)].append((r.ts, r.dport))
+        elif (
+            r.icmp_type == ICMP_DEST_UNREACHABLE
+            and r.icmp_code == ICMP_PORT_UNREACHABLE
+            and r.quoted_dport is not None
+        ):
+            icmp_closed[(r.src, r.dst)].add(r.quoted_dport)
+
+    findings = []
+    for (kind, scanner, target), events in probes.items():
+        best = max_distinct_in_window(events, config.window_seconds)
+        if best is None or best.distinct < config.vertical_port_threshold:
+            continue
+        probed = {port for _, port in events}
+        closed = (icmp_closed if kind == "UDP" else tcp_rst)[(target, scanner)] & probed
+        label = "UDP port scan" if kind == "UDP" else f"TCP {kind} scan"
+        findings.append(
+            Finding(
+                detector="portscan.udp" if kind == "UDP" else f"portscan.{kind.lower()}",
+                title=label,
+                severity=Severity.MEDIUM,
+                src=scanner,
+                dst=target,
+                first_seen=min(ts for ts, _ in events),
+                last_seen=max(ts for ts, _ in events),
+                description=(
+                    f"{scanner} sent {kind} probes to {best.distinct} distinct ports on {target} "
+                    f"within {best.end - best.start:.1f}s; {len(closed)} answered as closed."
+                ),
+                attack_technique="T1046",
+                evidence={
+                    "probe_type": kind,
+                    "distinct_ports_in_window": best.distinct,
+                    "total_distinct_ports": len(probed),
+                    "probes": len(events),
+                    "closed_ports": len(closed),
+                    # no reply means open or filtered: both are silent for these probe types
+                    "open_or_filtered_ports": len(probed - closed),
+                    "port_sample": sorted(probed)[:PORT_SAMPLE_LIMIT],
+                },
+            )
+        )
     return findings

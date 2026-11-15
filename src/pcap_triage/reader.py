@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from scapy.layers.dns import DNS
-from scapy.layers.inet import ICMP, IP, TCP, UDP
+from scapy.layers.inet import ICMP, IP, TCP, UDP, UDPerror
 from scapy.layers.inet6 import IPv6
 from scapy.utils import PcapReader
 
@@ -61,6 +61,9 @@ class PacketRecord:
     dport: int | None = None
     tcp_flags: int = 0
     dns: DnsInfo | None = None
+    icmp_type: int | None = None
+    icmp_code: int | None = None
+    quoted_dport: int | None = None  # dst port of the UDP datagram quoted in an ICMP error
 
     @property
     def is_syn_only(self) -> bool:
@@ -129,7 +132,12 @@ def _to_record(pkt) -> PacketRecord | None:
         dns = _dns_info(pkt) if DNS_PORT in (udp.sport, udp.dport) else None
         return PacketRecord(ts, ip.src, ip.dst, "UDP", length, udp.sport, udp.dport, dns=dns)
     if ICMP in pkt:
-        return PacketRecord(ts, ip.src, ip.dst, "ICMP", length)
+        icmp = pkt[ICMP]
+        quoted = int(pkt[UDPerror].dport) if UDPerror in pkt else None
+        return PacketRecord(
+            ts, ip.src, ip.dst, "ICMP", length,
+            icmp_type=int(icmp.type), icmp_code=int(icmp.code), quoted_dport=quoted,
+        )  # fmt: skip
     return PacketRecord(ts, ip.src, ip.dst, "OTHER", length)
 
 
