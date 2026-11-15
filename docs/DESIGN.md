@@ -66,8 +66,7 @@ distinct keys. Cost: O(n log n) for the sort, O(n) for the sweep.
   outside the window. Raising `--scan-window` catches them at the cost of more
   false positives. This is tested explicitly.
 * **Distributed scans** from many sources are not correlated.
-* **NULL/FIN/Xmas scans and UDP scans** do not send SYN and are not detected
-  yet.
+* NULL / FIN / Xmas and UDP scans are covered separately (below).
 * **False positives:** NAT gateways and proxies (many users behind one IP),
   authorised vulnerability scanners, passive FTP and MS-RPC dynamic ports.
 
@@ -200,3 +199,28 @@ are applied **after** detection as a filter over findings:
 Filtering findings, rather than excluding traffic before detection, keeps
 detector statistics unchanged and makes every suppression traceable to a
 rule.
+
+## Stealth TCP and UDP scans
+
+Same sliding window and `--scan-ports` threshold as the SYN vertical scan,
+counted per probe type and `(scanner, target)`.
+
+| Detector | Probe | Closed port answers | Open / filtered |
+|---|---|---|---|
+| `portscan.null` | TCP, no flags | RST | silent |
+| `portscan.fin` | TCP, FIN only | RST | silent |
+| `portscan.xmas` | TCP, FIN+PSH+URG | RST | silent |
+| `portscan.udp` | UDP datagram | ICMP type 3 code 3 (port unreachable) | silent or a UDP reply |
+
+* These TCP flag combinations never occur in a normal conversation (FIN is
+  always sent with ACK on a real connection), which is why Nmap's `-sN/-sF/-sX`
+  are detectable at all. FIN+ACK teardowns are explicitly not counted.
+* "Open or filtered" is reported rather than "open" because silence is the
+  answer for both: the probe type cannot tell them apart.
+* The reader records the destination port quoted inside ICMP errors, which is
+  how a port-unreachable message is tied back to the probed port.
+* UDP probes are counted only towards the lower-numbered port. Without that,
+  a DNS server answering one client on many ephemeral ports would look like a
+  UDP scan of the client (`test_dns_replies_to_many_client_ports_not_a_udp_scan`).
+  A scan sent *from* a low source port (e.g. `--source-port 53`) is missed by
+  this rule; it is a known evasion.
