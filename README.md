@@ -79,7 +79,21 @@ Options:
 --dns-min-nxdomain N   distinct NXDOMAIN names for a DGA finding (default 10)
 --beacon-min-events N  check-ins on one channel before beaconing is considered (default 8)
 --beacon-max-jitter F  maximum interval jitter, MAD / median (default 0.2)
---fail-on-findings     exit 1 when any finding is produced
+--allowlist FILE       TOML allow-list of known-good activity
+--fail-on-findings     exit 1 when any finding is produced (after allow-listing)
+```
+
+Allow-lists suppress known-good activity (`--allowlist FILE`, TOML). Every rule
+needs a `reason`; suppressed findings are listed separately in both report
+formats so the allow-list can be audited. See
+[examples/allowlist.toml](examples/allowlist.toml).
+
+```toml
+[[allow]]
+detector = "beacon"      # exact name or glob such as "dns.*"
+dst = "203.0.113.50"     # src / dst accept an IP or CIDR
+port = 443
+reason = "Endpoint agent heartbeat (approved)"
 ```
 
 Exit codes: `0` success, `1` findings present (only with `--fail-on-findings`), `2` input error.
@@ -108,7 +122,8 @@ Test fixtures use RFC 5737 documentation addresses (192.0.2.0/24,
 - [x] Beaconing: regular-interval connections (C2 heartbeat)
 - [ ] ARP spoofing: IP-to-MAC binding changes
 - [ ] Cleartext credentials: HTTP Basic, FTP, Telnet
-- [ ] UDP scan detection; detector allow-lists
+- [x] Per-detector allow-lists with mandatory reasons
+- [ ] UDP scan detection
 - [ ] Validation against public lab captures and Nmap traffic recorded in a local VM
 
 ## Responsible use

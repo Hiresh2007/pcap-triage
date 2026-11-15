@@ -10,6 +10,7 @@ from pathlib import Path
 from scapy.error import Scapy_Exception
 
 from . import __version__
+from .allowlist import apply_allowlist, load_allowlist
 from .detectors import (
     BeaconConfig,
     DnsConfig,
@@ -106,6 +107,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="maximum interval jitter (median absolute deviation / median), e.g. 0.2",
     )
     a.add_argument(
+        "--allowlist",
+        type=Path,
+        help="TOML file of known-good activity to suppress (suppressed findings are still listed)",
+    )
+    a.add_argument(
         "--fail-on-findings",
         action="store_true",
         help="exit with status 1 if any finding is produced (for CI / scripting)",
@@ -128,7 +134,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         beacon_config = BeaconConfig(
             min_events=args.beacon_min_events, max_jitter=args.beacon_max_jitter
         )
-    except ValueError as exc:
+        rules = load_allowlist(args.allowlist) if args.allowlist else []
+    except ValueError as exc:  # includes AllowlistError
         print(f"error: {exc}", file=sys.stderr)
         return EXIT_ERROR
     try:
@@ -137,6 +144,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"error: could not read {args.pcap}: {exc}", file=sys.stderr)
         return EXIT_ERROR
 
+    if rules:
+        result.findings, result.suppressed = apply_allowlist(result.findings, rules)
     render = render_json if args.format == "json" else render_text
     print(render(result, top=args.top))
     if args.fail_on_findings and result.findings:

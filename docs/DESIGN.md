@@ -180,3 +180,23 @@ precision.
   agents, health checks, update polling, push-notification keep-alives. These
   need allow-lists (roadmap: per-detector allow-lists).
 * Very slow beacons (hours) need captures long enough to contain ≥ 8 check-ins.
+
+## Allow-lists
+
+Every detector has known benign sources (scanners you run, agents that
+beacon by design, reputation services that encode data in DNS). Allow-lists
+are applied **after** detection as a filter over findings:
+
+* A rule matches when all of its fields match (`detector` glob, `src`/`dst`
+  IP or CIDR, evidence `port`, evidence `domain` including subdomains). A rule
+  must set at least one condition, and `reason` is mandatory.
+* Unknown fields are an error. A typo such as `prot = 443` would otherwise
+  leave a rule with no effective condition, which would suppress everything.
+* Suppressed findings are **kept and reported** with their reason, in text
+  and JSON, so an allow-list can be reviewed. Silent suppression is how real
+  intrusions get hidden behind stale exceptions.
+* `--fail-on-findings` considers only unsuppressed findings.
+
+Filtering findings, rather than excluding traffic before detection, keeps
+detector statistics unchanged and makes every suppression traceable to a
+rule.
