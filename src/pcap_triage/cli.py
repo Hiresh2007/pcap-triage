@@ -16,6 +16,7 @@ from .detectors import (
     DnsConfig,
     PortScanConfig,
     detect_beaconing,
+    detect_cleartext_credentials,
     detect_dns_anomalies,
     detect_port_scans,
 )
@@ -43,6 +44,7 @@ def analyze(
         detect_port_scans(records, scan_config)
         + detect_dns_anomalies(records, dns_config)
         + detect_beaconing(records, beacon_config)
+        + detect_cleartext_credentials(records)
     )
     findings.sort(key=lambda f: (f.first_seen, f.detector, f.src))
     return AnalysisResult(

@@ -1,5 +1,6 @@
 from .base import Finding, Severity
 from .beacon import BeaconConfig, detect_beaconing
+from .cleartext import detect_cleartext_credentials
 from .dns import DnsConfig, detect_dns_anomalies
 from .portscan import PortScanConfig, detect_port_scans
 
@@ -10,6 +11,7 @@ __all__ = [
     "PortScanConfig",
     "Severity",
     "detect_beaconing",
+    "detect_cleartext_credentials",
     "detect_dns_anomalies",
     "detect_port_scans",
 ]
