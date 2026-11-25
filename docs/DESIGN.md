@@ -224,3 +224,22 @@ counted per probe type and `(scanner, target)`.
   UDP scan of the client (`test_dns_replies_to_many_client_ports_not_a_udp_scan`).
   A scan sent *from* a low source port (e.g. `--source-port 53`) is missed by
   this rule; it is a known evasion.
+
+## Cleartext credentials (`cleartext.credentials`, T1040 context)
+
+The reader keeps the first 256 bytes of each TCP payload, enough to see a
+login command without holding full streams in memory.
+
+| Protocol | Signal |
+|---|---|
+| HTTP Basic | `Authorization: Basic <base64>` header on any port, decoded to `user:password` |
+| FTP / POP3 | `USER` / `PASS` commands to ports 21 / 110 |
+| IMAP | `<tag> LOGIN <user> <password>` to port 143 |
+| Telnet | client data to port 23 (a bare SYN from a scan does not count) |
+
+* **Secrets are never stored or reported.** Evidence holds usernames and
+  password lengths only, and a test checks the JSON output for the password.
+* Usernames are attacker-controllable bytes and are escaped like DNS names.
+* Limits: commands split across TCP segments, non-standard ports for FTP /
+  POP3 / IMAP, and STARTTLS upgrades (credentials after the upgrade are
+  encrypted, correctly not flagged) are not reassembled or tracked.

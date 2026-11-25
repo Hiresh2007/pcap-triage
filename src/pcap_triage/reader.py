@@ -27,6 +27,7 @@ URG = 0x20
 
 
 DNS_PORT = 53
+PAYLOAD_KEEP = 256
 
 
 def _printable_name(raw: bytes) -> str:
@@ -64,6 +65,7 @@ class PacketRecord:
     icmp_type: int | None = None
     icmp_code: int | None = None
     quoted_dport: int | None = None  # dst port of the UDP datagram quoted in an ICMP error
+    payload: bytes = b""  # first PAYLOAD_KEEP bytes of TCP payload (protocol detection only)
 
     @property
     def is_syn_only(self) -> bool:
@@ -126,7 +128,10 @@ def _to_record(pkt) -> PacketRecord | None:
     length = len(pkt)
     if TCP in pkt:
         tcp = pkt[TCP]
-        return PacketRecord(ts, ip.src, ip.dst, "TCP", length, tcp.sport, tcp.dport, int(tcp.flags))
+        data = bytes(tcp.payload)[:PAYLOAD_KEEP]
+        return PacketRecord(
+            ts, ip.src, ip.dst, "TCP", length, tcp.sport, tcp.dport, int(tcp.flags), payload=data
+        )
     if UDP in pkt:
         udp = pkt[UDP]
         dns = _dns_info(pkt) if DNS_PORT in (udp.sport, udp.dport) else None

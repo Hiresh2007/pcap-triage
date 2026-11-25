@@ -23,6 +23,7 @@ for heavier tools like Zeek or Suricata.
 | `portscan.horizontal` | One source SYN-probing one port across many hosts (e.g. SMB/445 sweeps) |
 | `dns.tunnel` | Many unique, long, high-entropy subdomains of one domain from one client (DNS tunnelling / exfiltration) |
 | `dns.nxdomain` | A client receiving NXDOMAIN for many distinct names at a high rate (DGA malware) |
+| `cleartext.credentials` | Logins sent unencrypted: HTTP Basic, FTP, POP3, IMAP, Telnet. Reports usernames and password *lengths*, never passwords |
 | `beacon` | Regular, low-jitter check-ins from one host to one service (C2 heartbeat) |
 | Output | Text report for humans, JSON for pipelines; `--fail-on-findings` exit code for scripting |
 
@@ -123,7 +124,7 @@ Test fixtures use RFC 5737 documentation addresses (192.0.2.0/24,
 - [x] DNS anomalies: tunnelling (long / high-entropy names) and high NXDOMAIN rate (DGA)
 - [x] Beaconing: regular-interval connections (C2 heartbeat)
 - [ ] ARP spoofing: IP-to-MAC binding changes
-- [ ] Cleartext credentials: HTTP Basic, FTP, Telnet
+- [x] Cleartext credentials: HTTP Basic, FTP, POP3, IMAP, Telnet
 - [x] Per-detector allow-lists with mandatory reasons
 - [x] UDP and NULL / FIN / Xmas scan detection
 - [ ] Validation against public lab captures and Nmap traffic recorded in a local VM
